@@ -7,11 +7,11 @@ RUN apt-get update && \
     apt-get install -y git wget && \
     rm -rf /var/lib/apt/lists/*
 
-# 安装Python依赖
+# 安装最新版本的diffusers
 RUN pip install --no-cache-dir \
     runpod \
-    diffusers==0.24.0 \
-    transformers==4.35.2 \
+    git+https://github.com/huggingface/diffusers.git \
+    transformers \
     accelerate \
     safetensors \
     pillow \
