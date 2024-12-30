@@ -1,7 +1,8 @@
 import runpod
 import torch
 import logging
-from diffusers import StableDiffusionXLPipeline, AutoencoderKL
+from diffusers import FluxControlNetPipeline, FluxControlNetModel
+from diffusers.models import FluxMultiControlNetModel
 from PIL import Image
 import base64
 import io
@@ -14,15 +15,22 @@ def init_model():
     try:
         logger.info("开始加载模型...")
         
-        # 加载基础模型
-        base_model = "stabilityai/stable-diffusion-xl-base-1.0"
-        logger.info(f"加载基础模型: {base_model}")
+        # 加载模型
+        base_model = 'black-forest-labs/FLUX.1-dev'
+        controlnet_model_union = 'Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro'
         
-        pipe = StableDiffusionXLPipeline.from_pretrained(
-            base_model,
-            torch_dtype=torch.float16,
-            variant="fp16",
-            use_safetensors=True
+        logger.info("加载控制网络...")
+        controlnet_union = FluxControlNetModel.from_pretrained(
+            controlnet_model_union, 
+            torch_dtype=torch.bfloat16
+        )
+        controlnet = FluxMultiControlNetModel([controlnet_union])
+        
+        logger.info("加载基础模型...")
+        pipe = FluxControlNetPipeline.from_pretrained(
+            base_model, 
+            controlnet=controlnet, 
+            torch_dtype=torch.bfloat16
         )
         
         # 移动到GPU
@@ -35,45 +43,41 @@ def init_model():
         logger.error(f"模型加载失败: {str(e)}")
         raise
 
+def decode_base64_image(base64_string):
+    image_data = base64.b64decode(base64_string)
+    image = Image.open(io.BytesIO(image_data))
+    return image
+
 def handler(event):
     try:
         logger.info("收到请求")
-        logger.info(f"输入数据: {event}")
         
         # 获取输入参数
         input_data = event["input"]
         prompt = input_data.get("prompt", "")
+        control_image = input_data.get("control_image", "")
+        control_mode = input_data.get("control_mode", 0)
         
-        if not prompt:
-            return {"error": "Missing prompt"}
+        if not prompt or not control_image:
+            return {"error": "Missing prompt or control_image"}
         
         logger.info(f"处理提示词: {prompt}")
+        logger.info(f"控制模式: {control_mode}")
+        
+        # 解码控制图像
+        control_image = decode_base64_image(control_image)
+        width, height = control_image.size
         
         # 生成图像
         output = pipe(
             prompt=prompt,
-            num_inference_steps=30,
-            guidance_scale=7.5,
+            control_image=control_image,
+            control_mode=control_mode,
+            width=width,
+            height=height,
+            controlnet_conditioning_scale=0.5,
+            num_inference_steps=24,
+            guidance_scale=3.5,
+            generator=torch.manual_seed(42)
         ).images[0]
         
-        # 将生成的图像转换为base64
-        buffered = io.BytesIO()
-        output.save(buffered, format="PNG")
-        output_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
-        
-        logger.info("图像生成完成")
-        
-        return {
-            "generated_image": output_image
-        }
-        
-    except Exception as e:
-        logger.error(f"处理请求时出错: {str(e)}")
-        return {"error": str(e)}
-
-# 初始化模型
-logger.info("正在初始化模型...")
-pipe = init_model()
-logger.info("模型初始化完成")
-
-runpod.serverless.start({"handler": handler})
