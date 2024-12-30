@@ -7,24 +7,22 @@ RUN apt-get update && \
     apt-get install -y git wget && \
     rm -rf /var/lib/apt/lists/*
 
-# 安装最新版本的diffusers
+# 安装Python依赖
 RUN pip install --no-cache-dir \
     runpod \
-    git+https://github.com/huggingface/diffusers.git \
     transformers \
     accelerate \
     safetensors \
     pillow \
-    torch \
     xformers \
-    controlnet_aux
+    controlnet_aux \
+    git+https://github.com/huggingface/diffusers.git
 
 # 复制handler文件
 COPY handler.py /app/handler.py
 
 # 设置环境变量
 ENV PYTHONPATH=/app
-ENV TORCH_CUDA_ARCH_LIST="6.0 6.1 7.0 7.5 8.0 8.6+PTX"
 
 # 启动命令
 CMD [ "python", "-u", "handler.py" ]
